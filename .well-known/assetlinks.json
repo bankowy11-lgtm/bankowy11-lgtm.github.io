@@ -1,11 +1,49 @@
 [
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "io.github.bankowy11lgtm.neonunik",
       "sha256_cert_fingerprints": [
         "2B:0E:80:03:56:24:CB:64:81:29:EB:95:9A:F1:79:E0:3E:C4:6A:72:EE:D9:C4:06:27:E6:E4:D1:74:D1:09:E3"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.bankowy11lgtm.swietliki",
+      "sha256_cert_fingerprints": [
+        "C4:83:54:E2:44:40:CE:13:CD:F1:09:2A:93:C7:35:ED:A4:9F:D1:1D:11:EB:83:4B:0D:D6:47:CB:76:A0:DF:13"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.bankowy11lgtm.ogrodblokow",
+      "sha256_cert_fingerprints": [
+        "11:30:52:88:41:40:F2:51:9C:49:23:94:48:DE:53:E1:11:45:4F:F9:2C:66:11:5A:FE:88:C8:88:9D:D8:E0:25"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.bankowy11lgtm.srubki",
+      "sha256_cert_fingerprints": [
+        "83:75:3A:22:FC:D4:FD:93:14:0E:56:85:E4:2E:E8:D3:E9:48:FB:A7:56:A5:77:CF:67:10:C2:36:5A:A5:B0:08"
       ]
     }
   }
