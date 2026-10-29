@@ -31,7 +31,8 @@
       "namespace": "android_app",
       "package_name": "io.github.bankowy11lgtm.ogrodblokow",
       "sha256_cert_fingerprints": [
-        "11:30:52:88:41:40:F2:51:9C:49:23:94:48:DE:53:E1:11:45:4F:F9:2C:66:11:5A:FE:88:C8:88:9D:D8:E0:25"
+        "11:30:52:88:41:40:F2:51:9C:49:23:94:48:DE:53:E1:11:45:4F:F9:2C:66:11:5A:FE:88:C8:88:9D:D8:E0:25",
+        "F7:AC:73:13:89:1E:36:04:8B:D8:D7:A0:C5:E5:60:BB:2A:42:D7:1F:8D:FC:3A:20:4B:B7:9D:42:22:A2:C9:E8"
       ]
     }
   },
