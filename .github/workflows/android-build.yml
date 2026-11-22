@@ -1,0 +1,48 @@
+name: Build ContactPro APK
+
+on:
+  push:
+    paths:
+      - "ContactPro/**"
+      - ".github/workflows/android-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ContactPro
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ContactPro-debug-apk
+          path: ContactPro/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Commit APK to branch
+        run: |
+          mkdir -p ../apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../apk/ContactPro-debug.apk
+          cd ..
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apk/ContactPro-debug.apk
+          git commit -m "Build ContactPro debug APK [skip ci]" || exit 0
+          git push
