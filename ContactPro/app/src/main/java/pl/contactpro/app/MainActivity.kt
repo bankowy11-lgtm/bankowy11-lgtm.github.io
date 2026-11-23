@@ -14,9 +14,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -42,7 +42,6 @@ import java.time.LocalDate
 enum class Tab(val label: String, val icon: ImageVector) {
     CONTACTS("Kontakty", Icons.Default.Groups),
     HISTORY("Historia", Icons.Default.History),
-    BIRTHDAYS("Urodziny", Icons.Default.Cake),
     MORE("Więcej", Icons.Default.MoreHoriz)
 }
 
@@ -53,20 +52,12 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
         super.onCreate(savedInstanceState)
-        val startTab = if (intent?.getStringExtra(EXTRA_TAB) == "birthdays") Tab.BIRTHDAYS else Tab.CONTACTS
-        setContent { ContactProApp(startTab) }
-    }
-
-    companion object {
-        const val EXTRA_TAB = "tab"
+        setContent { ContactProApp(Tab.CONTACTS) }
     }
 }
 
 private fun granted(context: Context, permission: String) =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
-
-private fun notificationsGranted(context: Context) =
-    Build.VERSION.SDK_INT < 33 || granted(context, Manifest.permission.POST_NOTIFICATIONS)
 
 private fun matches(c: ContactItem, query: String): Boolean {
     val q = query.trim()
@@ -85,7 +76,24 @@ fun ContactProApp(startTab: Tab) {
     var canRead by remember { mutableStateOf(granted(context, Manifest.permission.READ_CONTACTS)) }
     var canWrite by remember { mutableStateOf(granted(context, Manifest.permission.WRITE_CONTACTS)) }
     var canCallLog by remember { mutableStateOf(granted(context, Manifest.permission.READ_CALL_LOG)) }
-    var canNotify by remember { mutableStateOf(notificationsGranted(context)) }
+    var themeMode by remember { mutableStateOf(ThemeStore.load(context)) }
+    val systemDark = isSystemInDarkTheme()
+    val isDark = when (themeMode) {
+        ThemeMode.SYSTEM -> systemDark
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+    currentPalette = if (isDark) DarkPalette else LightPalette
+    val activity = context as? ComponentActivity
+    LaunchedEffect(isDark) {
+        val bars = if (isDark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        activity?.enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+    }
+    fun setTheme(mode: ThemeMode) {
+        themeMode = mode
+        ThemeStore.save(context, mode)
+    }
 
     var data by remember { mutableStateOf(ContactsData()) }
     var loading by remember { mutableStateOf(canRead) }
@@ -112,7 +120,6 @@ fun ContactProApp(startTab: Tab) {
         canRead = granted(context, Manifest.permission.READ_CONTACTS)
         canWrite = granted(context, Manifest.permission.WRITE_CONTACTS)
         canCallLog = granted(context, Manifest.permission.READ_CALL_LOG)
-        canNotify = notificationsGranted(context)
     }
 
     val contactsPermission = rememberLauncherForActivityResult(
@@ -174,10 +181,6 @@ fun ContactProApp(startTab: Tab) {
         }
     }
 
-    LaunchedEffect(canRead) {
-        if (canRead) runCatching { BirthdayNotifier.schedule(context) }
-    }
-
     LaunchedEffect(tab, canCallLog, data) {
         if (tab == Tab.HISTORY && canCallLog) {
             callsLoading = true
@@ -214,12 +217,6 @@ fun ContactProApp(startTab: Tab) {
     }
     val filtered = remember(groupMembers, query) { groupMembers.filter { matches(it, query) } }
     val favorites = remember(data) { data.contacts.filter { it.starred } }
-    val birthdays = remember(data) {
-        val today = LocalDate.now()
-        data.contacts.mapNotNull { c -> c.birthday?.let { c to it.daysUntil(today) } }.sortedBy { it.second }
-    }
-    val upcoming = remember(birthdays) { birthdays.filter { it.second <= 7 } }
-    val todayCount = upcoming.count { it.second == 0 }
     val selected = selectedId?.let { id -> data.contacts.firstOrNull { it.id == id } }
 
     fun export(list: List<ContactItem>, name: String) {
@@ -231,13 +228,18 @@ fun ContactProApp(startTab: Tab) {
         exportLauncher.launch("$name-${LocalDate.now()}.vcf")
     }
 
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = Accent, background = Bg, surface = Panel,
-            onBackground = White, onSurface = White, onPrimary = Color.White,
-            surfaceVariant = Panel2, onSurfaceVariant = Muted, outline = Panel2
-        )
-    ) {
+    val scheme = if (isDark) darkColorScheme(
+        primary = Accent, background = Bg, surface = Panel,
+        onBackground = White, onSurface = White, onPrimary = Color.White,
+        surfaceVariant = Panel2, onSurfaceVariant = Muted, outline = Panel2,
+        surfaceContainerLow = Panel, surfaceContainer = Panel, surfaceContainerHigh = Panel
+    ) else lightColorScheme(
+        primary = Accent, background = Bg, surface = Panel,
+        onBackground = White, onSurface = White, onPrimary = Color.White,
+        surfaceVariant = Panel2, onSurfaceVariant = Muted, outline = Panel2,
+        surfaceContainerLow = Panel, surfaceContainer = Panel, surfaceContainerHigh = Panel
+    )
+    MaterialTheme(colorScheme = scheme) {
         Scaffold(
             containerColor = Bg,
             bottomBar = {
@@ -247,15 +249,7 @@ fun ContactProApp(startTab: Tab) {
                             NavigationBarItem(
                                 selected = tab == t,
                                 onClick = { tab = t },
-                                icon = {
-                                    if (t == Tab.BIRTHDAYS && todayCount > 0) {
-                                        BadgedBox(badge = { Badge(containerColor = Pink) { Text("$todayCount") } }) {
-                                            Icon(t.icon, t.label)
-                                        }
-                                    } else {
-                                        Icon(t.icon, t.label)
-                                    }
-                                },
+                                icon = { Icon(t.icon, t.label) },
                                 label = { Text(t.label, fontSize = 12.sp) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = Accent, selectedTextColor = Accent,
@@ -288,7 +282,6 @@ fun ContactProApp(startTab: Tab) {
                     loading = loading,
                     favorites = favorites,
                     filtered = filtered,
-                    upcoming = upcoming,
                     query = query,
                     onQuery = { query = it },
                     selectedGroup = selectedGroup,
@@ -297,7 +290,8 @@ fun ContactProApp(startTab: Tab) {
                     onOpen = { selectedId = it.id },
                     onStar = { c -> write { ctx -> ContactsRepository.setStarred(ctx, c.id, !c.starred) } },
                     onNewGroup = { if (canWrite) showNewGroup = true else requestContacts() },
-                    onOpenBirthdays = { tab = Tab.BIRTHDAYS }
+                    isDark = isDark,
+                    onToggleTheme = { setTheme(if (isDark) ThemeMode.LIGHT else ThemeMode.DARK) }
                 )
                 Tab.HISTORY -> HistoryScreen(
                     padding = padding,
@@ -308,15 +302,6 @@ fun ContactProApp(startTab: Tab) {
                     onOpenContact = { selectedId = it.id },
                     isBlocked = { n -> blockRev.let { BlockStore.isBlocked(context, n) } },
                     onUnknownNumber = { numberAction = it }
-                )
-                Tab.BIRTHDAYS -> BirthdaysScreen(
-                    padding = padding,
-                    birthdays = birthdays,
-                    notificationsAllowed = canNotify,
-                    onEnableNotifications = {
-                        if (Build.VERSION.SDK_INT >= 33) singlePermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    },
-                    onOpenContact = { selectedId = it.id }
                 )
                 Tab.MORE -> if (showBlocking) BlockingScreen(
                     padding = padding,
@@ -330,6 +315,8 @@ fun ContactProApp(startTab: Tab) {
                     contactCount = data.contacts.size,
                     selectedGroup = selectedGroup,
                     groupCount = groupMembers.size,
+                    themeMode = themeMode,
+                    onThemeMode = { setTheme(it) },
                     blockingActive = remember(blockRev) { BlockStore.isRoleHeld(context) },
                     blockedCount = remember(blockRev) { BlockStore.rules(context).size },
                     onOpenBlocking = { showBlocking = true },
@@ -381,9 +368,6 @@ fun ContactProApp(startTab: Tab) {
                         ContactsRepository.setGroupMembership(ctx, selected, title, idsOf(title), member)
                     }
                 },
-                onSetBirthday = { b ->
-                    write("Zapisano urodziny") { ctx -> ContactsRepository.setBirthday(ctx, selected, b) }
-                },
                 onShowQr = { qrContact = selected }
             )
         }
@@ -417,10 +401,10 @@ fun ContactProApp(startTab: Tab) {
                 initialGroup = selectedGroup,
                 onDismiss = { showAdd = false },
                 onSystemForm = { showAdd = false; openInsertContact(context) },
-                onSave = { name, phone, mail, groups, star, birthday ->
+                onSave = { name, phone, mail, groups, star ->
                     showAdd = false
                     write("Zapisano kontakt") { ctx ->
-                        ContactsRepository.addContact(ctx, name, phone, mail, groups, star, birthday)
+                        ContactsRepository.addContact(ctx, name, phone, mail, groups, star)
                     }
                 }
             )

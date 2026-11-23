@@ -39,21 +39,60 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
-internal val Bg = Color(0xFF0A1020)
-internal val Panel = Color(0xFF151F33)
-internal val Panel2 = Color(0xFF223049)
-internal val BarBg = Color(0xFF0D1526)
-internal val Accent = Color(0xFF1E8FFF)
-internal val AccentSoft = Color(0xFF1B3557)
-internal val Muted = Color(0xFF9AA9BF)
-internal val White = Color(0xFFF4F7FC)
-internal val Green = Color(0xFF2ED47A)
-internal val GreenSoft = Color(0xFF173B2C)
-internal val Gold = Color(0xFFFFC23D)
-internal val GoldSoft = Color(0xFF3A3220)
-internal val Red = Color(0xFFFF5A5F)
-internal val Pink = Color(0xFFFF7AB6)
-internal val PinkSoft = Color(0xFF3D1F33)
+data class Palette(
+    val dark: Boolean,
+    val bg: Color, val panel: Color, val panel2: Color, val barBg: Color,
+    val accent: Color, val accentSoft: Color, val muted: Color, val text: Color,
+    val green: Color, val greenSoft: Color, val gold: Color, val goldSoft: Color,
+    val red: Color, val pink: Color, val pinkSoft: Color
+)
+
+val DarkPalette = Palette(
+    dark = true,
+    bg = Color(0xFF0A1020), panel = Color(0xFF151F33), panel2 = Color(0xFF223049), barBg = Color(0xFF0D1526),
+    accent = Color(0xFF1E8FFF), accentSoft = Color(0xFF1B3557), muted = Color(0xFF9AA9BF), text = Color(0xFFF4F7FC),
+    green = Color(0xFF2ED47A), greenSoft = Color(0xFF173B2C), gold = Color(0xFFFFC23D), goldSoft = Color(0xFF3A3220),
+    red = Color(0xFFFF5A5F), pink = Color(0xFFFF7AB6), pinkSoft = Color(0xFF3D1F33)
+)
+
+val LightPalette = Palette(
+    dark = false,
+    bg = Color(0xFFF2F5FA), panel = Color(0xFFFFFFFF), panel2 = Color(0xFFE2E8F1), barBg = Color(0xFFFFFFFF),
+    accent = Color(0xFF1A73E8), accentSoft = Color(0xFFDCEAFF), muted = Color(0xFF5D6B80), text = Color(0xFF111827),
+    green = Color(0xFF15A04A), greenSoft = Color(0xFFDDF5E6), gold = Color(0xFFE0A100), goldSoft = Color(0xFFFFF1CC),
+    red = Color(0xFFE5484D), pink = Color(0xFFD63F8C), pinkSoft = Color(0xFFFBE2EE)
+)
+
+/** Aktualna paleta – odczyt w kompozycji automatycznie odświeża ekran po zmianie motywu. */
+var currentPalette by mutableStateOf(DarkPalette)
+
+internal val Bg get() = currentPalette.bg
+internal val Panel get() = currentPalette.panel
+internal val Panel2 get() = currentPalette.panel2
+internal val BarBg get() = currentPalette.barBg
+internal val Accent get() = currentPalette.accent
+internal val AccentSoft get() = currentPalette.accentSoft
+internal val Muted get() = currentPalette.muted
+internal val White get() = currentPalette.text
+internal val Green get() = currentPalette.green
+internal val GreenSoft get() = currentPalette.greenSoft
+internal val Gold get() = currentPalette.gold
+internal val GoldSoft get() = currentPalette.goldSoft
+internal val Red get() = currentPalette.red
+internal val Pink get() = currentPalette.pink
+internal val PinkSoft get() = currentPalette.pinkSoft
+
+enum class ThemeMode(val label: String) { SYSTEM("Systemowy"), LIGHT("Jasny"), DARK("Ciemny") }
+
+object ThemeStore {
+    fun load(context: Context): ThemeMode =
+        context.getSharedPreferences("settings", Context.MODE_PRIVATE).getString("theme", null)
+            ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM
+
+    fun save(context: Context, mode: ThemeMode) {
+        context.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putString("theme", mode.name).apply()
+    }
+}
 
 private val AvatarColors = listOf(
     Color(0xFF8E6AD8), Color(0xFF1F8E9E), Color(0xFF9B7240), Color(0xFFB86B86),

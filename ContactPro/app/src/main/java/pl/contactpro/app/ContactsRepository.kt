@@ -9,7 +9,6 @@ import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.CallLog
 import android.provider.ContactsContract.CommonDataKinds.Email
-import android.provider.ContactsContract.CommonDataKinds.Event
 import android.provider.ContactsContract.CommonDataKinds.GroupMembership
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import android.provider.ContactsContract.CommonDataKinds.StructuredName
@@ -25,9 +24,7 @@ data class ContactItem(
     val emails: List<String>,
     val photo: Uri?,
     val starred: Boolean,
-    val groupIds: Set<Long>,
-    val birthday: Birthday? = null
-) {
+    val groupIds: Set<Long>) {
     val phone: String get() = phones.firstOrNull().orEmpty()
 }
 
@@ -72,22 +69,17 @@ object ContactsRepository {
         val phones = mutableMapOf<Long, MutableList<String>>()
         val emails = mutableMapOf<Long, MutableList<String>>()
         val memberships = mutableMapOf<Long, MutableSet<Long>>()
-        val birthdays = mutableMapOf<Long, Birthday>()
 
         resolver.query(
             Data.CONTENT_URI,
-            arrayOf(Data.CONTACT_ID, Data.MIMETYPE, Data.DATA1, Data.DATA2),
-            "${Data.MIMETYPE} IN (?,?,?,?)",
-            arrayOf(
-                Phone.CONTENT_ITEM_TYPE, Email.CONTENT_ITEM_TYPE,
-                GroupMembership.CONTENT_ITEM_TYPE, Event.CONTENT_ITEM_TYPE
-            ),
+            arrayOf(Data.CONTACT_ID, Data.MIMETYPE, Data.DATA1),
+            "${Data.MIMETYPE} IN (?,?,?)",
+            arrayOf(Phone.CONTENT_ITEM_TYPE, Email.CONTENT_ITEM_TYPE, GroupMembership.CONTENT_ITEM_TYPE),
             "${Data.IS_PRIMARY} DESC"
         )?.use { c ->
             val idCol = c.getColumnIndexOrThrow(Data.CONTACT_ID)
             val typeCol = c.getColumnIndexOrThrow(Data.MIMETYPE)
             val dataCol = c.getColumnIndexOrThrow(Data.DATA1)
-            val data2Col = c.getColumnIndexOrThrow(Data.DATA2)
             while (c.moveToNext()) {
                 val id = c.getLong(idCol)
                 val value = c.getString(dataCol) ?: continue
@@ -101,10 +93,6 @@ object ContactsRepository {
                         val list = emails.getOrPut(id) { mutableListOf() }
                         if (list.none { it.equals(value, true) }) list.add(value)
                     }
-                    Event.CONTENT_ITEM_TYPE ->
-                        if (c.getString(data2Col) == Event.TYPE_BIRTHDAY.toString() && id !in birthdays) {
-                            Birthday.parse(value)?.let { birthdays[id] = it }
-                        }
                     GroupMembership.CONTENT_ITEM_TYPE ->
                         value.toLongOrNull()?.let { memberships.getOrPut(id) { mutableSetOf() }.add(it) }
                 }
@@ -140,8 +128,7 @@ object ContactsRepository {
                         emails = emails[id].orEmpty(),
                         photo = c.getString(photoCol)?.let { Uri.parse(it) },
                         starred = c.getInt(starCol) == 1,
-                        groupIds = memberships[id].orEmpty(),
-                        birthday = birthdays[id]
+                        groupIds = memberships[id].orEmpty()
                     )
                 )
             }
@@ -229,8 +216,7 @@ object ContactsRepository {
         phone: String,
         email: String,
         groups: Collection<String>,
-        starred: Boolean,
-        birthday: Birthday? = null
+        starred: Boolean
     ) {
         val resolver = context.contentResolver
         val acc = primaryAccount(context)
@@ -262,14 +248,6 @@ object ContactsRepository {
                 .withValue(Data.MIMETYPE, Email.CONTENT_ITEM_TYPE)
                 .withValue(Email.ADDRESS, email.trim())
                 .withValue(Email.TYPE, Email.TYPE_HOME)
-                .build()
-        }
-        if (birthday != null) {
-            ops += ContentProviderOperation.newInsert(Data.CONTENT_URI)
-                .withValueBackReference(Data.RAW_CONTACT_ID, 0)
-                .withValue(Data.MIMETYPE, Event.CONTENT_ITEM_TYPE)
-                .withValue(Event.START_DATE, birthday.toStorage())
-                .withValue(Event.TYPE, Event.TYPE_BIRTHDAY)
                 .build()
         }
         groupIds.forEach { gid ->
@@ -331,26 +309,6 @@ object ContactsRepository {
     fun lookupUri(contact: ContactItem): Uri =
         ContactsContract.Contacts.getLookupUri(contact.id, contact.lookupKey)
             ?: ContentUris.withAppendedId(ContactsContract.Contacts.CONTENT_URI, contact.id)
-
-    fun setBirthday(context: Context, contact: ContactItem, birthday: Birthday) {
-        val resolver = context.contentResolver
-        val raws = rawContacts(resolver, contact.id)
-        if (raws.isEmpty()) error("Nie znaleziono kontaktu")
-        val rawIn = raws.joinToString(",") { it.first.toString() }
-        resolver.delete(
-            Data.CONTENT_URI,
-            "${Data.RAW_CONTACT_ID} IN ($rawIn) AND ${Data.MIMETYPE}=? AND ${Event.TYPE}=?",
-            arrayOf(Event.CONTENT_ITEM_TYPE, Event.TYPE_BIRTHDAY.toString())
-        )
-        val raw = raws.firstOrNull { it.second.type == "com.google" } ?: raws.first()
-        val values = ContentValues().apply {
-            put(Data.RAW_CONTACT_ID, raw.first)
-            put(Data.MIMETYPE, Event.CONTENT_ITEM_TYPE)
-            put(Event.START_DATE, birthday.toStorage())
-            put(Event.TYPE, Event.TYPE_BIRTHDAY)
-        }
-        resolver.insert(Data.CONTENT_URI, values)
-    }
 
     private fun phoneKey(number: String): String = number.filter { it.isDigit() }.takeLast(9)
 

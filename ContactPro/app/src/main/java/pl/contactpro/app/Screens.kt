@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CallMade
@@ -23,7 +22,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Upload
@@ -44,7 +43,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
-import java.time.LocalDate
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -184,88 +182,6 @@ fun HistoryScreen(
     }
 }
 
-// ---------- Urodziny ----------
-
-@Composable
-fun BirthdaysScreen(
-    padding: PaddingValues,
-    birthdays: List<Pair<ContactItem, Int>>,
-    notificationsAllowed: Boolean,
-    onEnableNotifications: () -> Unit,
-    onOpenContact: (ContactItem) -> Unit
-) {
-    val context = LocalContext.current
-    val today = LocalDate.now()
-    LazyColumn(
-        Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item { ScreenTitle("Urodziny", "Nie zapomnij o nikim") }
-        item {
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(if (notificationsAllowed) GreenSoft else PinkSoft)
-                    .then(if (notificationsAllowed) Modifier else Modifier.clickable(onClick = onEnableNotifications))
-                    .padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.NotificationsActive, null, tint = if (notificationsAllowed) Green else Pink)
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    if (notificationsAllowed) "Przypomnienie przyjdzie o 9:00 w dniu urodzin."
-                    else "Dotknij, aby włączyć przypomnienia o urodzinach.",
-                    color = White, fontSize = 14.sp
-                )
-            }
-        }
-        if (birthdays.isEmpty()) {
-            item {
-                EmptyState("Żaden kontakt nie ma zapisanych urodzin.\nOtwórz kontakt i dotknij „Dodaj urodziny”.")
-            }
-        } else {
-            items(birthdays, key = { it.first.id }) { (c, days) ->
-                val b = c.birthday ?: return@items
-                val age = b.turningAge(today)
-                val isToday = days == 0
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
-                        .background(if (isToday) PinkSoft else Panel)
-                        .clickable { onOpenContact(c) }
-                        .padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ContactAvatar(c, 50)
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            c.name, color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            b.label().take(5) + (age?.let { " • kończy ${plural(it, "rok", "lata", "lat")}" } ?: ""),
-                            color = Muted, fontSize = 13.sp
-                        )
-                    }
-                    Box(
-                        Modifier.clip(RoundedCornerShape(10.dp))
-                            .background(if (isToday) Pink else if (days <= 7) PinkSoft else Panel2)
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                    ) {
-                        Text(
-                            whenText(days), color = if (isToday) Color.White else if (days <= 7) Pink else Muted,
-                            fontSize = 12.sp, fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    ActionPill(Icons.Default.Cake, "Złóż życzenia", PinkSoft, Pink, c.phone.isNotBlank()) {
-                        sms(context, c.phone, "Wszystkiego najlepszego z okazji urodzin! 🎉")
-                    }
-                }
-            }
-        }
-    }
-}
-
 // ---------- Więcej: wizytówka i kopia zapasowa ----------
 
 @Composable
@@ -275,6 +191,8 @@ fun MoreScreen(
     contactCount: Int,
     selectedGroup: String?,
     groupCount: Int,
+    themeMode: ThemeMode,
+    onThemeMode: (ThemeMode) -> Unit,
     blockingActive: Boolean,
     blockedCount: Int,
     onOpenBlocking: () -> Unit,
@@ -293,7 +211,25 @@ fun MoreScreen(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { ScreenTitle("Więcej", "Wizytówka, blokowanie i kopia zapasowa") }
+        item { ScreenTitle("Więcej", "Ustawienia, wizytówka i kopia zapasowa") }
+
+        item {
+            PanelCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Palette, null, tint = Accent, modifier = Modifier.size(26.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Motyw", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Systemowy dopasowuje się do ustawień telefonu.", color = Muted, fontSize = 13.sp)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ThemeMode.entries.forEach { mode ->
+                        GroupChip(mode.label, themeMode == mode) { onThemeMode(mode) }
+                    }
+                }
+            }
+        }
 
         item {
             Row(
@@ -394,7 +330,7 @@ fun MoreScreen(
 }
 
 object BuildConfigInfo {
-    const val VERSION = "1.4"
+    const val VERSION = "1.5"
 }
 
 @Composable

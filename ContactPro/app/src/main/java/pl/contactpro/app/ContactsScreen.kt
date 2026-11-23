@@ -2,7 +2,6 @@
 
 package pl.contactpro.app
 
-import android.app.DatePickerDialog
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,11 +16,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContactPhone
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.QrCode2
@@ -47,7 +46,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import java.time.LocalDate
 
 internal fun letterOf(name: String): String {
     val ch = name.trimStart().firstOrNull() ?: return "#"
@@ -61,7 +59,6 @@ fun ContactsScreen(
     loading: Boolean,
     favorites: List<ContactItem>,
     filtered: List<ContactItem>,
-    upcoming: List<Pair<ContactItem, Int>>,
     query: String,
     onQuery: (String) -> Unit,
     selectedGroup: String?,
@@ -70,16 +67,16 @@ fun ContactsScreen(
     onOpen: (ContactItem) -> Unit,
     onStar: (ContactItem) -> Unit,
     onNewGroup: () -> Unit,
-    onOpenBirthdays: () -> Unit
+    isDark: Boolean,
+    onToggleTheme: () -> Unit
 ) {
     val context = LocalContext.current
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    val showBdays = upcoming.isNotEmpty() && query.isBlank() && selectedGroup == null
     val showFavs = favorites.isNotEmpty() && query.isBlank() && selectedGroup == null
     // Liczba elementów listy przed kontaktami – potrzebna do skakania po literach.
-    val headerCount = 3 + (if (showBdays) 1 else 0) + (if (showFavs) 2 else 0) + 2
+    val headerCount = 3 + (if (showFavs) 2 else 0) + 2
 
     val rows: List<Any> = remember(filtered) {
         buildList {
@@ -103,7 +100,7 @@ fun ContactsScreen(
             contentPadding = PaddingValues(start = 16.dp, end = if (showAlphabet) 30.dp else 16.dp, bottom = 100.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            item { Header(totalCount) }
+            item { Header(totalCount, isDark, onToggleTheme) }
             item {
                 Text(
                     selectedGroup ?: "Wszystkie kontakty",
@@ -112,8 +109,6 @@ fun ContactsScreen(
                 )
             }
             item { SearchField(query, onQuery) }
-
-            if (showBdays) item { BirthdayBanner(upcoming, onOpenBirthdays) }
 
             if (showFavs) {
                 item { SectionHeader("Ulubione", plural(favorites.size, "osoba", "osoby", "osób")) }
@@ -251,7 +246,7 @@ private fun AlphabetBar(letters: List<String>, modifier: Modifier, onLetter: (St
 }
 
 @Composable
-private fun Header(count: Int) {
+private fun Header(count: Int, isDark: Boolean, onToggleTheme: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(AccentSoft),
@@ -263,6 +258,13 @@ private fun Header(count: Int) {
         Column(Modifier.weight(1f)) {
             Text("CONTACT PRO", color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
             Text("Twoje kontakty pod ręką", color = Muted, fontSize = 13.sp)
+        }
+        IconButton(onClick = onToggleTheme) {
+            Icon(
+                if (isDark) Icons.Default.LightMode else Icons.Default.DarkMode,
+                if (isDark) "Motyw jasny" else "Motyw ciemny",
+                tint = Muted
+            )
         }
         Box(
             Modifier.clip(RoundedCornerShape(12.dp)).background(AccentSoft)
@@ -298,26 +300,6 @@ private fun SearchField(value: String, onQuery: (String) -> Unit) {
             cursorColor = Accent
         )
     )
-}
-
-@Composable
-private fun BirthdayBanner(upcoming: List<Pair<ContactItem, Int>>, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(PinkSoft)
-            .clickable(onClick = onClick).padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(Icons.Default.Cake, null, tint = Pink, modifier = Modifier.size(28.dp))
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text("Nadchodzące urodziny", color = White, fontWeight = FontWeight.Bold)
-            Text(
-                upcoming.take(3).joinToString(" • ") { (c, d) -> "${c.name.substringBefore(" ")} ${whenText(d).lowercase()}" },
-                color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
-            )
-        }
-        Icon(Icons.Default.ChevronRight, null, tint = Muted)
-    }
 }
 
 @Composable
@@ -362,17 +344,6 @@ private fun ContactRow(
 
 // ---------- Szczegóły kontaktu ----------
 
-internal fun pickDate(context: android.content.Context, initial: Birthday?, onPicked: (Birthday) -> Unit) {
-    val today = LocalDate.now()
-    DatePickerDialog(
-        context,
-        { _, y, m, d -> onPicked(Birthday(m + 1, d, y)) },
-        initial?.year ?: (today.year - 30),
-        (initial?.month ?: today.monthValue) - 1,
-        initial?.day ?: today.dayOfMonth
-    ).show()
-}
-
 @Composable
 fun ContactDetailsSheet(
     contact: ContactItem,
@@ -381,11 +352,9 @@ fun ContactDetailsSheet(
     onDismiss: () -> Unit,
     onStar: () -> Unit,
     onToggleGroup: (String, Boolean) -> Unit,
-    onSetBirthday: (Birthday) -> Unit,
     onShowQr: () -> Unit
 ) {
     val context = LocalContext.current
-    val today = LocalDate.now()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -439,29 +408,6 @@ fun ContactDetailsSheet(
                     IconButton(onClick = { email(context, address) }) { Icon(Icons.Default.Email, "Napisz", tint = Accent) }
                 }
             }
-            val b = contact.birthday
-            if (b != null) {
-                val age = b.turningAge(today)
-                val days = b.daysUntil(today)
-                InfoRow(
-                    Icons.Default.Cake, b.label(),
-                    "Urodziny • ${whenText(days)}" + (age?.let { " • kończy ${plural(it, "rok", "lata", "lat")}" } ?: ""),
-                    onClick = { pickDate(context, b, onSetBirthday) }
-                ) {
-                    IconButton(onClick = { pickDate(context, b, onSetBirthday) }) {
-                        Icon(Icons.Default.Edit, "Zmień datę", tint = Muted)
-                    }
-                }
-            } else {
-                InfoRow(Icons.Default.Cake, "Dodaj urodziny", "Przypomnimy Ci o nich rano", onClick = {
-                    pickDate(context, null, onSetBirthday)
-                }) {
-                    IconButton(onClick = { pickDate(context, null, onSetBirthday) }) {
-                        Icon(Icons.Default.Add, "Dodaj", tint = Pink)
-                    }
-                }
-            }
-
             Spacer(Modifier.height(16.dp))
             Text("Grupy", color = White, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth())
             Text(
@@ -520,15 +466,13 @@ fun AddContactSheet(
     initialGroup: String?,
     onDismiss: () -> Unit,
     onSystemForm: () -> Unit,
-    onSave: (String, String, String, Set<String>, Boolean, Birthday?) -> Unit
+    onSave: (String, String, String, Set<String>, Boolean) -> Unit
 ) {
-    val context = LocalContext.current
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var mail by remember { mutableStateOf("") }
     var groups by remember { mutableStateOf(setOfNotNull(initialGroup)) }
     var starred by remember { mutableStateOf(false) }
-    var birthday by remember { mutableStateOf<Birthday?>(null) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -543,17 +487,6 @@ fun AddContactSheet(
             FormField(name, { name = it }, "Imię i nazwisko", KeyboardType.Text, KeyboardCapitalization.Words)
             FormField(phone, { phone = it }, "Numer telefonu", KeyboardType.Phone)
             FormField(mail, { mail = it }, "E-mail (opcjonalnie)", KeyboardType.Email)
-
-            InfoRow(
-                Icons.Default.Cake,
-                birthday?.label() ?: "Urodziny (opcjonalnie)",
-                if (birthday == null) "Dotknij, aby wybrać datę" else "Dotknij, aby zmienić",
-                onClick = { pickDate(context, birthday) { birthday = it } }
-            ) {
-                if (birthday != null) IconButton(onClick = { birthday = null }) {
-                    Icon(Icons.Default.Close, "Usuń datę", tint = Muted)
-                }
-            }
 
             Text("Grupy", color = White, fontWeight = FontWeight.SemiBold)
             FlowRow(
@@ -579,7 +512,7 @@ fun AddContactSheet(
             }
 
             Button(
-                onClick = { onSave(name, phone, mail, groups, starred, birthday) },
+                onClick = { onSave(name, phone, mail, groups, starred) },
                 enabled = name.isNotBlank() || phone.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(16.dp),
