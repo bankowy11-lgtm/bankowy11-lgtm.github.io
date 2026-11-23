@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- cień karty -->
+    <path android:fillColor="#33061A40" android:pathData="M40,29h28a7,7 0 0 1 7,7v38a7,7 0 0 1 -7,7h-28a7,7 0 0 1 -7,-7v-38a7,7 0 0 1 7,-7z" />
+    <!-- karta książki adresowej -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M39,27h28a7,7 0 0 1 7,7v38a7,7 0 0 1 -7,7h-28a7,7 0 0 1 -7,-7v-38a7,7 0 0 1 7,-7z" />
+    <!-- zakładki -->
+    <path android:fillColor="#FF9FD2FF" android:pathData="M29,36h5v6h-5a1.5,1.5 0 0 1 -1.5,-1.5v-3a1.5,1.5 0 0 1 1.5,-1.5z" />
+    <path android:fillColor="#FF9FD2FF" android:pathData="M29,48h5v6h-5a1.5,1.5 0 0 1 -1.5,-1.5v-3a1.5,1.5 0 0 1 1.5,-1.5z" />
+    <path android:fillColor="#FF9FD2FF" android:pathData="M29,60h5v6h-5a1.5,1.5 0 0 1 -1.5,-1.5v-3a1.5,1.5 0 0 1 1.5,-1.5z" />
+    <!-- osoba -->
+    <path android:fillColor="#FF1E8FFF" android:pathData="M53,36.5a8.5,8.5 0 1 0 0.01,0z" />
+    <path android:fillColor="#FF1E8FFF" android:pathData="M39,68c0,-9.5 6.3,-13.5 14,-13.5s14,4 14,13.5v1.5h-28z" />
+    <!-- plakietka ze słuchawką -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M70,55.5a13.5,13.5 0 1 0 0.01,0z" />
+    <path android:fillColor="#FF2ED47A" android:pathData="M70,58a11,11 0 1 0 0.01,0z" />
+    <group android:translateX="62.8" android:translateY="61.8" android:scaleX="0.6" android:scaleY="0.6">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M20.01,15.38c-1.23,0 -2.42,-0.2 -3.53,-0.56 -0.35,-0.12 -0.74,-0.03 -1.01,0.24l-1.57,1.97c-2.83,-1.35 -5.48,-3.9 -6.89,-6.83l1.95,-1.66c0.27,-0.28 0.35,-0.67 0.24,-1.02 -0.37,-1.11 -0.56,-2.3 -0.56,-3.53 0,-0.54 -0.45,-0.99 -0.99,-0.99H4.19C3.65,3 3,3.24 3,3.99 3,13.28 10.73,21 20.01,21c0.71,0 0.99,-0.63 0.99,-1.18v-3.45c0,-0.54 -0.45,-0.99 -0.99,-0.99z" />
+    </group>
+</vector>
