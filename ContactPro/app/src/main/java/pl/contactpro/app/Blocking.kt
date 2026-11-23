@@ -230,17 +230,7 @@ fun BlockingScreen(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item {
-            Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Wróć", tint = White)
-                }
-                Column {
-                    Text("Blokowanie", color = White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                    Text("Niechciane połączenia", color = Muted, fontSize = 14.sp)
-                }
-            }
-        }
+        item { SubHeader("Blokowanie", "Niechciane połączenia", onBack) }
 
         item {
             val (bg, tint, icon) = when {

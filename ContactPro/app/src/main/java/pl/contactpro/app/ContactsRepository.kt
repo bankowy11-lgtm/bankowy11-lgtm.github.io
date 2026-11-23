@@ -8,7 +8,10 @@ import android.content.Context
 import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.CallLog
+import android.provider.ContactsContract.AggregationExceptions
 import android.provider.ContactsContract.CommonDataKinds.Email
+import android.provider.ContactsContract.CommonDataKinds.Note
+import android.provider.ContactsContract.CommonDataKinds.StructuredPostal
 import android.provider.ContactsContract.CommonDataKinds.GroupMembership
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import android.provider.ContactsContract.CommonDataKinds.StructuredName
@@ -23,6 +26,7 @@ data class ContactItem(
     val phones: List<String>,
     val emails: List<String>,
     val photo: Uri?,
+    val photoFull: Uri?,
     val starred: Boolean,
     val groupIds: Set<Long>) {
     val phone: String get() = phones.firstOrNull().orEmpty()
@@ -45,6 +49,16 @@ data class CallEntry(
     val isMissed: Boolean get() = type == CallLog.Calls.MISSED_TYPE || type == CallLog.Calls.REJECTED_TYPE
 }
 
+data class LabeledValue(val value: String, val label: String)
+
+data class ContactDetails(
+    val phones: List<LabeledValue> = emptyList(),
+    val emails: List<LabeledValue> = emptyList(),
+    val addresses: List<LabeledValue> = emptyList(),
+    val note: String = "",
+    val lastCall: CallEntry? = null
+)
+
 data class AccountRef(val type: String?, val name: String?)
 
 data class ContactsData(
@@ -55,7 +69,7 @@ data class ContactsData(
 object ContactsRepository {
 
     /** Grupy proponowane zawsze, nawet jeśli jeszcze nie istnieją w telefonie. */
-    val DEFAULT_GROUPS = listOf("Rodzina", "Praca", "Znajomi")
+    val DEFAULT_GROUPS = listOf("Rodzina", "Znajomi", "Praca", "Klienci")
 
     private fun displayTitle(title: String?, systemId: String?): String = when (systemId) {
         "Family" -> "Rodzina"
@@ -107,6 +121,7 @@ object ContactsRepository {
                 ContactsContract.Contacts.LOOKUP_KEY,
                 ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
                 ContactsContract.Contacts.PHOTO_THUMBNAIL_URI,
+                ContactsContract.Contacts.PHOTO_URI,
                 ContactsContract.Contacts.STARRED
             ),
             null, null,
@@ -117,6 +132,7 @@ object ContactsRepository {
             val nameCol = c.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)
             val photoCol = c.getColumnIndexOrThrow(ContactsContract.Contacts.PHOTO_THUMBNAIL_URI)
             val starCol = c.getColumnIndexOrThrow(ContactsContract.Contacts.STARRED)
+            val photoFullCol = c.getColumnIndexOrThrow(ContactsContract.Contacts.PHOTO_URI)
             while (c.moveToNext()) {
                 val id = c.getLong(idCol)
                 contacts.add(
@@ -127,6 +143,7 @@ object ContactsRepository {
                         phones = phones[id].orEmpty(),
                         emails = emails[id].orEmpty(),
                         photo = c.getString(photoCol)?.let { Uri.parse(it) },
+                        photoFull = c.getString(photoFullCol)?.let { Uri.parse(it) },
                         starred = c.getInt(starCol) == 1,
                         groupIds = memberships[id].orEmpty()
                     )
@@ -366,5 +383,151 @@ object ContactsRepository {
             }
         } ?: error("Nie można zapisać pliku")
         return count
+    }
+
+    fun loadDetails(context: Context, contact: ContactItem): ContactDetails {
+        val res = context.resources
+        val phones = mutableListOf<LabeledValue>()
+        val emails = mutableListOf<LabeledValue>()
+        val addresses = mutableListOf<LabeledValue>()
+        var note = ""
+        context.contentResolver.query(
+            Data.CONTENT_URI,
+            arrayOf(Data.MIMETYPE, Data.DATA1, Data.DATA2, Data.DATA3),
+            "${Data.CONTACT_ID}=? AND ${Data.MIMETYPE} IN (?,?,?,?)",
+            arrayOf(
+                contact.id.toString(), Phone.CONTENT_ITEM_TYPE, Email.CONTENT_ITEM_TYPE,
+                StructuredPostal.CONTENT_ITEM_TYPE, Note.CONTENT_ITEM_TYPE
+            ),
+            "${Data.IS_PRIMARY} DESC"
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val value = c.getString(1)?.trim().orEmpty()
+                if (value.isEmpty()) continue
+                val type = c.getString(2)?.toIntOrNull() ?: 0
+                val custom = c.getString(3)
+                when (c.getString(0)) {
+                    Phone.CONTENT_ITEM_TYPE -> {
+                        val digits = value.filter { it.isDigit() }
+                        if (phones.none { it.value.filter { ch -> ch.isDigit() } == digits }) {
+                            phones += LabeledValue(value, Phone.getTypeLabel(res, type, custom).toString())
+                        }
+                    }
+                    Email.CONTENT_ITEM_TYPE -> if (emails.none { it.value.equals(value, true) }) {
+                        emails += LabeledValue(value, Email.getTypeLabel(res, type, custom).toString())
+                    }
+                    StructuredPostal.CONTENT_ITEM_TYPE -> if (addresses.none { it.value == value }) {
+                        addresses += LabeledValue(value, StructuredPostal.getTypeLabel(res, type, custom).toString())
+                    }
+                    Note.CONTENT_ITEM_TYPE -> if (note.isEmpty()) note = value
+                }
+            }
+        }
+        val lastCall = if (android.content.pm.PackageManager.PERMISSION_GRANTED ==
+            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALL_LOG)
+        ) {
+            runCatching { loadCallLog(context, listOf(contact), 500).firstOrNull { it.contact != null } }.getOrNull()
+        } else null
+        return ContactDetails(phones, emails, addresses, note, lastCall)
+    }
+
+    private fun preferredRaw(resolver: ContentResolver, contact: ContactItem): Pair<Long, AccountRef> {
+        val raws = rawContacts(resolver, contact.id)
+        if (raws.isEmpty()) error("Nie znaleziono kontaktu")
+        return raws.firstOrNull { it.second.type == "com.google" } ?: raws.first()
+    }
+
+    fun setNote(context: Context, contact: ContactItem, note: String) {
+        val resolver = context.contentResolver
+        val raws = rawContacts(resolver, contact.id)
+        if (raws.isEmpty()) error("Nie znaleziono kontaktu")
+        val rawIn = raws.joinToString(",") { it.first.toString() }
+        resolver.delete(
+            Data.CONTENT_URI,
+            "${Data.RAW_CONTACT_ID} IN ($rawIn) AND ${Data.MIMETYPE}=?",
+            arrayOf(Note.CONTENT_ITEM_TYPE)
+        )
+        if (note.isNotBlank()) {
+            val raw = preferredRaw(resolver, contact)
+            resolver.insert(Data.CONTENT_URI, ContentValues().apply {
+                put(Data.RAW_CONTACT_ID, raw.first)
+                put(Data.MIMETYPE, Note.CONTENT_ITEM_TYPE)
+                put(Note.NOTE, note.trim())
+            })
+        }
+    }
+
+    /** Ustawia zdjęcie kontaktu z wybranego obrazu (przycięte do kwadratu). */
+    fun setPhoto(context: Context, contact: ContactItem, image: Uri) {
+        val resolver = context.contentResolver
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(image)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= 720 && bounds.outHeight / (sample * 2) >= 720) sample *= 2
+        val decoded = resolver.openInputStream(image)?.use {
+            android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+        } ?: error("Nie można odczytać zdjęcia")
+        val side = minOf(decoded.width, decoded.height)
+        val square = android.graphics.Bitmap.createBitmap(decoded, (decoded.width - side) / 2, (decoded.height - side) / 2, side, side)
+        val scaled = if (side > 720) android.graphics.Bitmap.createScaledBitmap(square, 720, 720, true) else square
+        val bytes = java.io.ByteArrayOutputStream().use { out ->
+            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+            out.toByteArray()
+        }
+        val raw = preferredRaw(resolver, contact)
+        val photoUri = Uri.withAppendedPath(
+            ContentUris.withAppendedId(RawContacts.CONTENT_URI, raw.first),
+            RawContacts.DisplayPhoto.CONTENT_DIRECTORY
+        )
+        resolver.openAssetFileDescriptor(photoUri, "rw")?.use { fd ->
+            fd.createOutputStream().use { it.write(bytes) }
+        } ?: error("Nie można zapisać zdjęcia")
+    }
+
+    fun deleteContact(context: Context, contact: ContactItem) {
+        context.contentResolver.delete(lookupUri(contact), null, null)
+    }
+
+    /** Grupy kontaktów, które wyglądają na duplikaty (ten sam numer albo ta sama nazwa). */
+    fun findDuplicates(contacts: List<ContactItem>): List<List<ContactItem>> {
+        val parent = HashMap<Long, Long>()
+        fun find(x: Long): Long {
+            var r = x
+            while (parent[r] != null && parent[r] != r) r = parent[r]!!
+            parent[x] = r
+            return r
+        }
+        fun union(a: Long, b: Long) {
+            val ra = find(a); val rb = find(b)
+            if (ra != rb) parent[ra] = rb
+        }
+        contacts.forEach { parent[it.id] = it.id }
+        val byKey = HashMap<String, Long>()
+        contacts.forEach { c ->
+            val keys = c.phones.map { "p:" + phoneKey(it) }.filter { it.length >= 8 } +
+                listOf("n:" + c.name.lowercase().replace(Regex("\\s+"), " ").trim()).filter { it.length > 4 && c.name != "Bez nazwy" }
+            keys.forEach { k ->
+                val other = byKey[k]
+                if (other == null) byKey[k] = c.id else union(c.id, other)
+            }
+        }
+        return contacts.groupBy { find(it.id) }.values.filter { it.size > 1 }.sortedBy { it.first().name }
+    }
+
+    /** Łączy kontakty w jeden (Android zachowuje wszystkie dane, tylko je scala). */
+    fun merge(context: Context, contacts: List<ContactItem>) {
+        val resolver = context.contentResolver
+        val raws = contacts.flatMap { rawContacts(resolver, it.id).map { r -> r.first } }.distinct()
+        if (raws.size < 2) return
+        val first = raws.first()
+        val ops = arrayListOf<ContentProviderOperation>()
+        raws.drop(1).forEach { other ->
+            ops += ContentProviderOperation.newUpdate(AggregationExceptions.CONTENT_URI)
+                .withValue(AggregationExceptions.TYPE, AggregationExceptions.TYPE_KEEP_TOGETHER)
+                .withValue(AggregationExceptions.RAW_CONTACT_ID1, first)
+                .withValue(AggregationExceptions.RAW_CONTACT_ID2, other)
+                .build()
+        }
+        resolver.applyBatch(ContactsContract.AUTHORITY, ops)
     }
 }

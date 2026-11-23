@@ -10,6 +10,9 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -18,14 +21,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContactPhone
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,28 +56,28 @@ internal fun letterOf(name: String): String {
 @Composable
 fun ContactsScreen(
     padding: PaddingValues,
-    totalCount: Int,
     loading: Boolean,
-    favorites: List<ContactItem>,
     filtered: List<ContactItem>,
     query: String,
     onQuery: (String) -> Unit,
+    favoritesOnly: Boolean,
+    onFavoritesOnly: (Boolean) -> Unit,
     selectedGroup: String?,
-    onSelectGroup: (String?) -> Unit,
-    groupTitles: List<String>,
+    onClearGroup: () -> Unit,
+    onOpenGroups: () -> Unit,
+    groupLabel: (ContactItem) -> String?,
     onOpen: (ContactItem) -> Unit,
     onStar: (ContactItem) -> Unit,
-    onNewGroup: () -> Unit,
     isDark: Boolean,
-    onToggleTheme: () -> Unit
+    onToggleTheme: () -> Unit,
+    onNewGroup: () -> Unit,
+    onDuplicates: () -> Unit,
+    onBackup: () -> Unit
 ) {
     val context = LocalContext.current
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-
-    val showFavs = favorites.isNotEmpty() && query.isBlank() && selectedGroup == null
-    // Liczba elementów listy przed kontaktami – potrzebna do skakania po literach.
-    val headerCount = 3 + (if (showFavs) 2 else 0) + 2
+    val headerCount = 3
 
     val rows: List<Any> = remember(filtered) {
         buildList {
@@ -88,7 +89,7 @@ fun ContactsScreen(
             }
         }
     }
-    val letterIndex: Map<String, Int> = remember(rows, headerCount) {
+    val letterIndex: Map<String, Int> = remember(rows) {
         buildMap { rows.forEachIndexed { i, r -> if (r is String) put(r, headerCount + i) } }
     }
     val showAlphabet = !loading && query.isBlank() && filtered.size > 12
@@ -97,51 +98,47 @@ fun ContactsScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = if (showAlphabet) 30.dp else 16.dp, bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            contentPadding = PaddingValues(start = 16.dp, end = if (showAlphabet) 28.dp else 16.dp, bottom = 100.dp)
         ) {
-            item { Header(totalCount, isDark, onToggleTheme) }
             item {
-                Text(
-                    selectedGroup ?: "Wszystkie kontakty",
-                    color = White, fontSize = 30.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-            item { SearchField(query, onQuery) }
-
-            if (showFavs) {
-                item { SectionHeader("Ulubione", plural(favorites.size, "osoba", "osoby", "osób")) }
-                item {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        items(favorites, key = { it.id }) { c ->
-                            Column(
-                                Modifier.width(74.dp).clip(RoundedCornerShape(12.dp))
-                                    .clickable { onOpen(c) }.padding(vertical = 4.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                ContactAvatar(c, 60)
-                                Spacer(Modifier.height(6.dp))
-                                Text(
-                                    c.name.substringBefore(" "), color = White, fontSize = 13.sp,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                var menu by remember { mutableStateOf(false) }
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        selectedGroup ?: "Kontakty", color = White, fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onToggleTheme) {
+                        Icon(if (isDark) Icons.Default.LightMode else Icons.Default.DarkMode, "Zmień motyw", tint = White)
+                    }
+                    Box {
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Więcej", tint = White) }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Panel) {
+                            DropdownMenuItem(text = { Text("Nowa grupa", color = White) }, onClick = { menu = false; onNewGroup() })
+                            DropdownMenuItem(text = { Text("Wykrywanie duplikatów", color = White) }, onClick = { menu = false; onDuplicates() })
+                            DropdownMenuItem(text = { Text("Kopia zapasowa", color = White) }, onClick = { menu = false; onBackup() })
                         }
                     }
                 }
             }
-
-            item { SectionHeader("Lista kontaktów", plural(filtered.size, "wynik", "wyniki", "wyników")) }
+            item { SearchField(query, onQuery) }
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { GroupChip("Wszystkie", selectedGroup == null) { onSelectGroup(null) } }
-                    items(groupTitles) { title ->
-                        GroupChip(title, selectedGroup == title) {
-                            onSelectGroup(if (selectedGroup == title) null else title)
+                LazyRow(
+                    Modifier.padding(top = 12.dp, bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        TabChip("Wszystkie", null, !favoritesOnly && selectedGroup == null) {
+                            onFavoritesOnly(false); onClearGroup()
                         }
                     }
-                    item { GroupChip("+ Grupa", false, outlinedAccent = true, onClick = onNewGroup) }
+                    item {
+                        TabChip("Ulubione", Icons.Default.Star, favoritesOnly, iconTint = Gold) { onFavoritesOnly(!favoritesOnly) }
+                    }
+                    if (selectedGroup != null) {
+                        item { TabChip("$selectedGroup  ✕", Icons.Default.Groups, true, onClick = onClearGroup) }
+                    } else {
+                        item { TabChip("Grupy", Icons.Default.Groups, false, onClick = onOpenGroups) }
+                    }
                 }
             }
 
@@ -155,24 +152,19 @@ fun ContactsScreen(
                     EmptyState(
                         when {
                             query.isNotBlank() -> "Nie znaleziono kontaktów dla „$query”."
+                            favoritesOnly -> "Nie masz jeszcze ulubionych.\nDotknij gwiazdki przy kontakcie."
                             selectedGroup != null -> "Grupa „$selectedGroup” jest pusta.\nOtwórz kontakt i dodaj go do grupy."
-                            else -> "Nie ma jeszcze kontaktów.\nDodaj pierwszy przyciskiem „Nowy kontakt”."
+                            else -> "Nie ma jeszcze kontaktów.\nDodaj pierwszy przyciskiem +."
                         }
                     )
                 }
                 else -> items(rows, key = { r -> if (r is ContactItem) r.id else "letter-$r" }) { r ->
                     if (r is ContactItem) {
-                        ContactRow(
-                            contact = r,
-                            onClick = { onOpen(r) },
-                            onStar = { onStar(r) },
-                            onSms = { sms(context, r.phone) },
-                            onCall = { dial(context, r.phone) }
-                        )
+                        ContactRow(r, groupLabel(r), onClick = { onOpen(r) }, onStar = { onStar(r) })
                     } else {
                         Text(
-                            r as String, color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 8.dp, top = 6.dp)
+                            r as String, color = White, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 6.dp, top = 14.dp, bottom = 4.dp)
                         )
                     }
                 }
@@ -191,6 +183,32 @@ fun ContactsScreen(
 }
 
 @Composable
+private fun TabChip(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    selected: Boolean,
+    iconTint: Color? = null,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = if (selected) Accent else Panel
+    ) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) {
+                Icon(icon, null, tint = if (selected) Color.White else (iconTint ?: Accent), modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(
+                label, color = if (selected) Color.White else White,
+                fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
 private fun AlphabetBar(letters: List<String>, modifier: Modifier, onLetter: (String) -> Unit) {
     var active by remember { mutableStateOf<String?>(null) }
     var heightPx by remember { mutableIntStateOf(1) }
@@ -204,9 +222,7 @@ private fun AlphabetBar(letters: List<String>, modifier: Modifier, onLetter: (St
     }
     Box(modifier) {
         Column(
-            Modifier.padding(end = 3.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(Panel.copy(alpha = 0.85f))
+            Modifier.padding(end = 2.dp)
                 .onSizeChanged { heightPx = it.height.coerceAtLeast(1) }
                 .pointerInput(letters) {
                     awaitEachGesture {
@@ -223,7 +239,7 @@ private fun AlphabetBar(letters: List<String>, modifier: Modifier, onLetter: (St
                         active = null
                     }
                 }
-                .padding(vertical = 8.dp, horizontal = 5.dp),
+                .padding(vertical = 6.dp, horizontal = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             letters.forEach {
@@ -246,50 +262,20 @@ private fun AlphabetBar(letters: List<String>, modifier: Modifier, onLetter: (St
 }
 
 @Composable
-private fun Header(count: Int, isDark: Boolean, onToggleTheme: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(AccentSoft),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.ContactPhone, null, tint = Accent, modifier = Modifier.size(28.dp))
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text("CONTACT PRO", color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-            Text("Twoje kontakty pod ręką", color = Muted, fontSize = 13.sp)
-        }
-        IconButton(onClick = onToggleTheme) {
-            Icon(
-                if (isDark) Icons.Default.LightMode else Icons.Default.DarkMode,
-                if (isDark) "Motyw jasny" else "Motyw ciemny",
-                tint = Muted
-            )
-        }
-        Box(
-            Modifier.clip(RoundedCornerShape(12.dp)).background(AccentSoft)
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-        ) {
-            Text("$count", color = Accent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        }
-    }
-}
-
-@Composable
 private fun SearchField(value: String, onQuery: (String) -> Unit) {
     TextField(
         value = value,
         onValueChange = onQuery,
         modifier = Modifier.fillMaxWidth(),
-        placeholder = { Text("Szukaj kontaktu lub numeru…", color = Muted) },
-        leadingIcon = { Icon(Icons.Default.Search, null, tint = Accent) },
+        placeholder = { Text("Szukaj kontaktów…", color = Muted) },
+        leadingIcon = { Icon(Icons.Default.Search, null, tint = Muted) },
         trailingIcon = {
             if (value.isNotEmpty()) IconButton(onClick = { onQuery("") }) {
                 Icon(Icons.Default.Close, "Wyczyść", tint = Muted)
             }
         },
         singleLine = true,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = TextFieldDefaults.colors(
             focusedContainerColor = Panel2,
             unfocusedContainerColor = Panel,
@@ -303,131 +289,86 @@ private fun SearchField(value: String, onQuery: (String) -> Unit) {
 }
 
 @Composable
-private fun ContactRow(
-    contact: ContactItem,
-    onClick: () -> Unit,
-    onStar: () -> Unit,
-    onSms: () -> Unit,
-    onCall: () -> Unit
-) {
-    val hasPhone = contact.phone.isNotBlank()
+private fun ContactRow(contact: ContactItem, subtitle: String?, onClick: () -> Unit, onStar: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Panel)
-            .clickable(onClick = onClick).padding(start = 14.dp, end = 10.dp, top = 14.dp, bottom = 14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ContactAvatar(contact, 54)
+        ContactAvatar(contact, 52)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                contact.name, color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                contact.name, color = White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(2.dp))
             Text(
-                contact.phone.ifBlank { "Brak numeru telefonu" }, color = Muted, fontSize = 13.sp,
+                subtitle ?: contact.phone.ifBlank { "Brak numeru" }, color = Muted, fontSize = 14.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis
             )
         }
-        IconButton(onClick = onStar, modifier = Modifier.size(40.dp)) {
+        IconButton(onClick = onStar) {
             Icon(
                 if (contact.starred) Icons.Default.Star else Icons.Default.StarBorder,
                 if (contact.starred) "Usuń z ulubionych" else "Dodaj do ulubionych",
-                tint = if (contact.starred) Gold else Muted
+                tint = if (contact.starred) Gold else Muted.copy(alpha = 0.6f)
             )
         }
-        ActionPill(Icons.Default.Sms, "SMS", AccentSoft, Accent, hasPhone, onSms)
-        Spacer(Modifier.width(6.dp))
-        ActionPill(Icons.Default.Call, "Zadzwoń", GreenSoft, Green, hasPhone, onCall)
     }
 }
 
-// ---------- Szczegóły kontaktu ----------
+// ---------- Ulubione ----------
 
 @Composable
-fun ContactDetailsSheet(
-    contact: ContactItem,
-    groupTitles: List<String>,
-    isInGroup: (String) -> Boolean,
-    onDismiss: () -> Unit,
-    onStar: () -> Unit,
-    onToggleGroup: (String, Boolean) -> Unit,
-    onShowQr: () -> Unit
-) {
+fun FavoritesScreen(padding: PaddingValues, favorites: List<ContactItem>, onOpen: (ContactItem) -> Unit) {
     val context = LocalContext.current
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Panel
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 22.dp).padding(bottom = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+    Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
+        ScreenTitle("Ulubione", plural(favorites.size, "osoba", "osoby", "osób"))
+        if (favorites.isEmpty()) {
+            EmptyState("Nie masz jeszcze ulubionych.\nDotknij gwiazdki przy kontakcie, aby go tu dodać.")
+            return@Column
+        }
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(104.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            ContactAvatar(contact, 96)
-            Spacer(Modifier.height(12.dp))
-            Text(contact.name, color = White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(18.dp))
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                val hasPhone = contact.phone.isNotBlank()
-                BigAction(Icons.Default.Call, "Zadzwoń", GreenSoft, Green, hasPhone) { dial(context, contact.phone) }
-                BigAction(Icons.Default.Sms, "SMS", AccentSoft, Accent, hasPhone) { sms(context, contact.phone) }
-                BigAction(
-                    if (contact.starred) Icons.Default.Star else Icons.Default.StarBorder,
-                    "Ulubiony", GoldSoft, Gold, true, onStar
-                )
-                BigAction(Icons.Default.Edit, "Edytuj", Panel2, White, true) { editContact(context, contact) }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onShowQr, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
-                    Icon(Icons.Default.QrCode2, null, tint = Accent)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Kod QR", color = White)
-                }
-                OutlinedButton(
-                    onClick = { shareContact(context, contact) },
-                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)
+            items(favorites, key = { it.id }) { c ->
+                Column(
+                    Modifier.clip(RoundedCornerShape(22.dp)).background(Panel)
+                        .clickable { onOpen(c) }.padding(vertical = 14.dp, horizontal = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(Icons.Default.Share, null, tint = Accent)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Udostępnij", color = White)
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-            contact.phones.forEach { number ->
-                InfoRow(Icons.Default.Call, number, "Telefon") {
-                    IconButton(onClick = { sms(context, number) }) { Icon(Icons.Default.Sms, "SMS", tint = Accent) }
-                    IconButton(onClick = { dial(context, number) }) { Icon(Icons.Default.Call, "Zadzwoń", tint = Green) }
-                }
-            }
-            contact.emails.forEach { address ->
-                InfoRow(Icons.Default.Email, address, "E-mail") {
-                    IconButton(onClick = { email(context, address) }) { Icon(Icons.Default.Email, "Napisz", tint = Accent) }
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-            Text("Grupy", color = White, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth())
-            Text(
-                "Dotknij, aby dodać lub usunąć kontakt z grupy.", color = Muted, fontSize = 12.sp,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(8.dp))
-            FlowRow(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                groupTitles.forEach { title ->
-                    val member = isInGroup(title)
-                    GroupChip(if (member) "✓ $title" else title, member) { onToggleGroup(title, !member) }
+                    ContactAvatar(c, 68)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        c.name, color = White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SmallRound(Icons.Default.Call, Green, c.phone.isNotBlank()) { dial(context, c.phone) }
+                        SmallRound(Icons.Default.Sms, Accent, c.phone.isNotBlank()) { sms(context, c.phone) }
+                    }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun SmallRound(icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(34.dp).clip(CircleShape).background(if (enabled) color else Panel2)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, null, tint = Color.White, modifier = Modifier.size(18.dp))
+    }
+}
+
+// ---------- Okna ----------
 
 @Composable
 fun QrDialog(title: String, vcard: String, onDismiss: () -> Unit) {
@@ -448,17 +389,12 @@ fun QrDialog(title: String, vcard: String, onDismiss: () -> Unit) {
                     Text("Nie udało się wygenerować kodu.", color = Muted)
                 }
                 Spacer(Modifier.height(12.dp))
-                Text(
-                    "Zeskanuj aparatem telefonu, aby zapisać kontakt.",
-                    color = Muted, fontSize = 13.sp
-                )
+                Text("Zeskanuj aparatem telefonu, aby zapisać kontakt.", color = Muted, fontSize = 13.sp)
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("ZAMKNIJ", color = Accent) } }
     )
 }
-
-// ---------- Nowy kontakt i nowa grupa ----------
 
 @Composable
 fun AddContactSheet(

@@ -15,6 +15,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -358,4 +366,82 @@ internal fun importVcf(context: Context, uri: Uri) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     safeStart(context, intent)
+}
+
+// ---------- Dodatki do wersji 2.0 ----------
+
+internal val Purple = Color(0xFF8B5CF6)
+internal val Orange = Color(0xFFF2850F)
+internal val Teal = Color(0xFF14B8A6)
+internal val WhatsAppGreen = Color(0xFF25D366)
+
+/** Kolor i ikona kafelka grupy. */
+internal fun groupStyle(title: String): Pair<Color, ImageVector> = when (title.lowercase()) {
+    "rodzina" -> Color(0xFFE8385F) to androidx.compose.material.icons.Icons.Default.Home
+    "znajomi" -> Color(0xFF2EAA4F) to androidx.compose.material.icons.Icons.Default.Groups
+    "praca" -> Color(0xFF2D6FE0) to androidx.compose.material.icons.Icons.Default.Work
+    "klienci" -> Color(0xFFF07C12) to androidx.compose.material.icons.Icons.Default.People
+    else -> {
+        val colors = listOf(Color(0xFF8B5CF6), Color(0xFF0EA5A5), Color(0xFFDB2777), Color(0xFF65A30D), Color(0xFF0284C7))
+        colors[abs(title.lowercase().hashCode() % colors.size)] to androidx.compose.material.icons.Icons.Default.Folder
+    }
+}
+
+internal fun copyToClipboard(context: Context, text: String) {
+    val cm = context.getSystemService(android.content.ClipboardManager::class.java) ?: return
+    cm.setPrimaryClip(android.content.ClipData.newPlainText("Contact Pro", text))
+    if (android.os.Build.VERSION.SDK_INT < 33) toast(context, "Skopiowano")
+}
+
+internal fun whatsapp(context: Context, phone: String) {
+    if (phone.isBlank()) return
+    val trimmed = phone.trim()
+    val digits = trimmed.filter { it.isDigit() }
+    val intl = when {
+        trimmed.startsWith("+") -> digits
+        digits.startsWith("00") -> digits.drop(2)
+        digits.length == 9 -> "48$digits"
+        else -> digits
+    }
+    safeStart(context, Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$intl")))
+}
+
+internal fun openMap(context: Context, address: String) {
+    safeStart(context, Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(address)}")))
+}
+
+@Composable
+internal fun SubHeader(title: String, subtitle: String? = null, onBack: () -> Unit) {
+    Row(Modifier.padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.material3.IconButton(onClick = onBack) {
+            Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, "Wróć", tint = White)
+        }
+        Column {
+            Text(title, color = White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            if (subtitle != null) Text(subtitle, color = Muted, fontSize = 14.sp)
+        }
+    }
+}
+
+/** Wiersz menu z kolorowym kwadratem ikony – jak w „Narzędziach”. */
+@Composable
+internal fun ToolRow(icon: ImageVector, color: Color, title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Panel)
+            .clickable(onClick = onClick).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(color),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = Muted, fontSize = 13.sp)
+        }
+        Icon(androidx.compose.material.icons.Icons.Default.ChevronRight, null, tint = Muted)
+    }
 }
