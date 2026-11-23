@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -102,6 +103,9 @@ fun ContactProApp(startTab: Tab) {
     var myCard by remember { mutableStateOf(MyCardStore.load(context)) }
     var editCard by remember { mutableStateOf(false) }
     var showCardQr by remember { mutableStateOf(false) }
+    var showBlocking by rememberSaveable { mutableStateOf(false) }
+    var blockRev by remember { mutableIntStateOf(0) }
+    var numberAction by remember { mutableStateOf<String?>(null) }
     var pendingExport by remember { mutableStateOf<List<ContactItem>>(emptyList()) }
 
     fun refreshPermissions() {
@@ -136,6 +140,20 @@ fun ContactProApp(startTab: Tab) {
             }
         }
     }
+    val roleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        blockRev++
+        if (BlockStore.isRoleHeld(context)) toast(context, "Ochrona przed niechcianymi połączeniami włączona")
+    }
+    fun enableBlocking() {
+        if (Build.VERSION.SDK_INT >= 29) {
+            val rm = context.getSystemService(android.app.role.RoleManager::class.java)
+            val intent = rm?.createRequestRoleIntent(android.app.role.RoleManager.ROLE_CALL_SCREENING)
+            if (intent != null) roleLauncher.launch(intent) else toast(context, "Ten telefon nie obsługuje filtrowania połączeń")
+        }
+    }
+
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> if (uri != null) importVcf(context, uri) }
@@ -143,6 +161,7 @@ fun ContactProApp(startTab: Tab) {
     LifecycleResumeEffect(Unit) {
         refreshPermissions()
         reloadKey++
+        blockRev++
         onPauseOrDispose { }
     }
 
@@ -286,7 +305,9 @@ fun ContactProApp(startTab: Tab) {
                     loading = callsLoading,
                     calls = calls,
                     onRequestPermission = { singlePermission.launch(Manifest.permission.READ_CALL_LOG) },
-                    onOpenContact = { selectedId = it.id }
+                    onOpenContact = { selectedId = it.id },
+                    isBlocked = { n -> blockRev.let { BlockStore.isBlocked(context, n) } },
+                    onUnknownNumber = { numberAction = it }
                 )
                 Tab.BIRTHDAYS -> BirthdaysScreen(
                     padding = padding,
@@ -297,12 +318,21 @@ fun ContactProApp(startTab: Tab) {
                     },
                     onOpenContact = { selectedId = it.id }
                 )
-                Tab.MORE -> MoreScreen(
+                Tab.MORE -> if (showBlocking) BlockingScreen(
+                    padding = padding,
+                    revision = blockRev,
+                    onChanged = { blockRev++ },
+                    onBack = { showBlocking = false },
+                    onEnable = { enableBlocking() }
+                ) else MoreScreen(
                     padding = padding,
                     myCard = myCard,
                     contactCount = data.contacts.size,
                     selectedGroup = selectedGroup,
                     groupCount = groupMembers.size,
+                    blockingActive = remember(blockRev) { BlockStore.isRoleHeld(context) },
+                    blockedCount = remember(blockRev) { BlockStore.rules(context).size },
+                    onOpenBlocking = { showBlocking = true },
                     onEditCard = { editCard = true },
                     onShowCardQr = { showCardQr = true },
                     onExportAll = { export(data.contacts, "kontakty") },
@@ -310,6 +340,33 @@ fun ContactProApp(startTab: Tab) {
                     onImport = { importLauncher.launch(arrayOf("text/x-vcard", "text/vcard", "text/directory", "application/octet-stream", "*/*")) }
                 )
             }
+        }
+
+        BackHandler(enabled = tab == Tab.MORE && showBlocking) { showBlocking = false }
+
+        numberAction?.let { number ->
+            val blocked = remember(number, blockRev) { BlockStore.isBlocked(context, number) }
+            NumberActionsDialog(
+                number = number,
+                blocked = blocked,
+                onDismiss = { numberAction = null },
+                onAddContact = { numberAction = null; openInsertContact(context, number) },
+                onToggleBlock = {
+                    if (blocked) {
+                        BlockStore.unblock(context, number)
+                        toast(context, "Odblokowano $number")
+                    } else {
+                        BlockStore.addRule(context, number, false)
+                        toast(
+                            context,
+                            if (BlockStore.isRoleHeld(context)) "Zablokowano $number"
+                            else "Zablokowano $number – włącz ochronę w Więcej › Blokowanie"
+                        )
+                    }
+                    blockRev++
+                    numberAction = null
+                }
+            )
         }
 
         if (selected != null) {

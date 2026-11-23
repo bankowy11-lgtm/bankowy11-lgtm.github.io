@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CallMade
 import androidx.compose.material.icons.filled.CallMissed
 import androidx.compose.material.icons.filled.CallReceived
@@ -87,7 +88,9 @@ fun HistoryScreen(
     loading: Boolean,
     calls: List<CallEntry>,
     onRequestPermission: () -> Unit,
-    onOpenContact: (ContactItem) -> Unit
+    onOpenContact: (ContactItem) -> Unit,
+    isBlocked: (String) -> Boolean,
+    onUnknownNumber: (String) -> Unit
 ) {
     val context = LocalContext.current
     var missedOnly by remember { mutableStateOf(false) }
@@ -140,7 +143,7 @@ fun HistoryScreen(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Panel)
                         .clickable {
                             if (call.contact != null) onOpenContact(call.contact)
-                            else if (call.number.isNotBlank()) openInsertContact(context, call.number)
+                            else if (call.number.isNotBlank()) onUnknownNumber(call.number)
                         }
                         .padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -164,7 +167,11 @@ fun HistoryScreen(
                             Text(extra, color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         if (call.contact == null && call.number.isNotBlank()) {
-                            Text("Dotknij, aby dodać do kontaktów", color = Accent, fontSize = 11.sp)
+                            if (isBlocked(call.number)) {
+                                Text("Zablokowany • dotknij, aby odblokować", color = Red, fontSize = 11.sp)
+                            } else {
+                                Text("Dotknij, aby dodać lub zablokować", color = Accent, fontSize = 11.sp)
+                            }
                         }
                     }
                     val hasNumber = call.number.isNotBlank()
@@ -268,6 +275,9 @@ fun MoreScreen(
     contactCount: Int,
     selectedGroup: String?,
     groupCount: Int,
+    blockingActive: Boolean,
+    blockedCount: Int,
+    onOpenBlocking: () -> Unit,
     onEditCard: () -> Unit,
     onShowCardQr: () -> Unit,
     onExportAll: () -> Unit,
@@ -283,7 +293,27 @@ fun MoreScreen(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { ScreenTitle("Więcej", "Wizytówka i kopia zapasowa") }
+        item { ScreenTitle("Więcej", "Wizytówka, blokowanie i kopia zapasowa") }
+
+        item {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Panel)
+                    .clickable(onClick = onOpenBlocking).padding(18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Block, null, tint = Red, modifier = Modifier.size(28.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Blokowanie połączeń", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        (if (blockingActive) "Włączone" else "Wyłączone") + " • " +
+                            plural(blockedCount, "zablokowany numer", "zablokowane numery", "zablokowanych numerów"),
+                        color = if (blockingActive) Green else Muted, fontSize = 13.sp
+                    )
+                }
+                Icon(Icons.Default.ChevronRight, null, tint = Muted)
+            }
+        }
 
         item {
             PanelCard {
@@ -364,7 +394,7 @@ fun MoreScreen(
 }
 
 object BuildConfigInfo {
-    const val VERSION = "1.3"
+    const val VERSION = "1.4"
 }
 
 @Composable
