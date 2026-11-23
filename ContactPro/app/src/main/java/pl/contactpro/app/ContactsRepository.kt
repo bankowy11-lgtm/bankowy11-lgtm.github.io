@@ -7,7 +7,9 @@ import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.provider.ContactsContract
+import android.provider.CallLog
 import android.provider.ContactsContract.CommonDataKinds.Email
+import android.provider.ContactsContract.CommonDataKinds.Event
 import android.provider.ContactsContract.CommonDataKinds.GroupMembership
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import android.provider.ContactsContract.CommonDataKinds.StructuredName
@@ -23,13 +25,28 @@ data class ContactItem(
     val emails: List<String>,
     val photo: Uri?,
     val starred: Boolean,
-    val groupIds: Set<Long>
+    val groupIds: Set<Long>,
+    val birthday: Birthday? = null
 ) {
     val phone: String get() = phones.firstOrNull().orEmpty()
 }
 
 /** Grupa widoczna w aplikacji – grupy o tej samej nazwie z różnych kont są łączone. */
 data class GroupItem(val title: String, val ids: Set<Long>)
+
+data class CallEntry(
+    val id: Long,
+    val number: String,
+    val cachedName: String?,
+    val type: Int,
+    val date: Long,
+    val duration: Long,
+    val contact: ContactItem?,
+    val count: Int = 1
+) {
+    val displayName: String get() = contact?.name ?: cachedName?.takeIf { it.isNotBlank() } ?: number.ifBlank { "Numer prywatny" }
+    val isMissed: Boolean get() = type == CallLog.Calls.MISSED_TYPE || type == CallLog.Calls.REJECTED_TYPE
+}
 
 data class AccountRef(val type: String?, val name: String?)
 
@@ -55,17 +72,22 @@ object ContactsRepository {
         val phones = mutableMapOf<Long, MutableList<String>>()
         val emails = mutableMapOf<Long, MutableList<String>>()
         val memberships = mutableMapOf<Long, MutableSet<Long>>()
+        val birthdays = mutableMapOf<Long, Birthday>()
 
         resolver.query(
             Data.CONTENT_URI,
-            arrayOf(Data.CONTACT_ID, Data.MIMETYPE, Data.DATA1),
-            "${Data.MIMETYPE} IN (?,?,?)",
-            arrayOf(Phone.CONTENT_ITEM_TYPE, Email.CONTENT_ITEM_TYPE, GroupMembership.CONTENT_ITEM_TYPE),
+            arrayOf(Data.CONTACT_ID, Data.MIMETYPE, Data.DATA1, Data.DATA2),
+            "${Data.MIMETYPE} IN (?,?,?,?)",
+            arrayOf(
+                Phone.CONTENT_ITEM_TYPE, Email.CONTENT_ITEM_TYPE,
+                GroupMembership.CONTENT_ITEM_TYPE, Event.CONTENT_ITEM_TYPE
+            ),
             "${Data.IS_PRIMARY} DESC"
         )?.use { c ->
             val idCol = c.getColumnIndexOrThrow(Data.CONTACT_ID)
             val typeCol = c.getColumnIndexOrThrow(Data.MIMETYPE)
             val dataCol = c.getColumnIndexOrThrow(Data.DATA1)
+            val data2Col = c.getColumnIndexOrThrow(Data.DATA2)
             while (c.moveToNext()) {
                 val id = c.getLong(idCol)
                 val value = c.getString(dataCol) ?: continue
@@ -79,6 +101,10 @@ object ContactsRepository {
                         val list = emails.getOrPut(id) { mutableListOf() }
                         if (list.none { it.equals(value, true) }) list.add(value)
                     }
+                    Event.CONTENT_ITEM_TYPE ->
+                        if (c.getString(data2Col) == Event.TYPE_BIRTHDAY.toString() && id !in birthdays) {
+                            Birthday.parse(value)?.let { birthdays[id] = it }
+                        }
                     GroupMembership.CONTENT_ITEM_TYPE ->
                         value.toLongOrNull()?.let { memberships.getOrPut(id) { mutableSetOf() }.add(it) }
                 }
@@ -114,7 +140,8 @@ object ContactsRepository {
                         emails = emails[id].orEmpty(),
                         photo = c.getString(photoCol)?.let { Uri.parse(it) },
                         starred = c.getInt(starCol) == 1,
-                        groupIds = memberships[id].orEmpty()
+                        groupIds = memberships[id].orEmpty(),
+                        birthday = birthdays[id]
                     )
                 )
             }
@@ -202,7 +229,8 @@ object ContactsRepository {
         phone: String,
         email: String,
         groups: Collection<String>,
-        starred: Boolean
+        starred: Boolean,
+        birthday: Birthday? = null
     ) {
         val resolver = context.contentResolver
         val acc = primaryAccount(context)
@@ -234,6 +262,14 @@ object ContactsRepository {
                 .withValue(Data.MIMETYPE, Email.CONTENT_ITEM_TYPE)
                 .withValue(Email.ADDRESS, email.trim())
                 .withValue(Email.TYPE, Email.TYPE_HOME)
+                .build()
+        }
+        if (birthday != null) {
+            ops += ContentProviderOperation.newInsert(Data.CONTENT_URI)
+                .withValueBackReference(Data.RAW_CONTACT_ID, 0)
+                .withValue(Data.MIMETYPE, Event.CONTENT_ITEM_TYPE)
+                .withValue(Event.START_DATE, birthday.toStorage())
+                .withValue(Event.TYPE, Event.TYPE_BIRTHDAY)
                 .build()
         }
         groupIds.forEach { gid ->
@@ -295,4 +331,82 @@ object ContactsRepository {
     fun lookupUri(contact: ContactItem): Uri =
         ContactsContract.Contacts.getLookupUri(contact.id, contact.lookupKey)
             ?: ContentUris.withAppendedId(ContactsContract.Contacts.CONTENT_URI, contact.id)
+
+    fun setBirthday(context: Context, contact: ContactItem, birthday: Birthday) {
+        val resolver = context.contentResolver
+        val raws = rawContacts(resolver, contact.id)
+        if (raws.isEmpty()) error("Nie znaleziono kontaktu")
+        val rawIn = raws.joinToString(",") { it.first.toString() }
+        resolver.delete(
+            Data.CONTENT_URI,
+            "${Data.RAW_CONTACT_ID} IN ($rawIn) AND ${Data.MIMETYPE}=? AND ${Event.TYPE}=?",
+            arrayOf(Event.CONTENT_ITEM_TYPE, Event.TYPE_BIRTHDAY.toString())
+        )
+        val raw = raws.firstOrNull { it.second.type == "com.google" } ?: raws.first()
+        val values = ContentValues().apply {
+            put(Data.RAW_CONTACT_ID, raw.first)
+            put(Data.MIMETYPE, Event.CONTENT_ITEM_TYPE)
+            put(Event.START_DATE, birthday.toStorage())
+            put(Event.TYPE, Event.TYPE_BIRTHDAY)
+        }
+        resolver.insert(Data.CONTENT_URI, values)
+    }
+
+    private fun phoneKey(number: String): String = number.filter { it.isDigit() }.takeLast(9)
+
+    /** Historia połączeń; kolejne połączenia z tym samym numerem i tego samego typu są łączone. */
+    fun loadCallLog(context: Context, contacts: List<ContactItem>, limit: Int = 300): List<CallEntry> {
+        val byPhone = mutableMapOf<String, ContactItem>()
+        contacts.forEach { c -> c.phones.forEach { p -> phoneKey(p).takeIf { it.length >= 6 }?.let { byPhone.putIfAbsent(it, c) } } }
+        val result = mutableListOf<CallEntry>()
+        context.contentResolver.query(
+            CallLog.Calls.CONTENT_URI,
+            arrayOf(
+                CallLog.Calls._ID, CallLog.Calls.NUMBER, CallLog.Calls.CACHED_NAME,
+                CallLog.Calls.TYPE, CallLog.Calls.DATE, CallLog.Calls.DURATION
+            ),
+            null, null, "${CallLog.Calls.DATE} DESC"
+        )?.use { c ->
+            var rows = 0
+            while (c.moveToNext() && rows < limit) {
+                rows++
+                val number = c.getString(1).orEmpty()
+                val type = c.getInt(3)
+                val last = result.lastOrNull()
+                if (last != null && last.number == number && last.isMissed == (type == CallLog.Calls.MISSED_TYPE || type == CallLog.Calls.REJECTED_TYPE) && last.type == type) {
+                    result[result.lastIndex] = last.copy(count = last.count + 1)
+                    continue
+                }
+                result += CallEntry(
+                    id = c.getLong(0),
+                    number = number,
+                    cachedName = c.getString(2),
+                    type = type,
+                    date = c.getLong(4),
+                    duration = c.getLong(5),
+                    contact = byPhone[phoneKey(number)]
+                )
+            }
+        }
+        return result
+    }
+
+    /** Zapisuje wybrane kontakty do jednego pliku .vcf. Zwraca liczbę zapisanych kontaktów. */
+    fun exportVcf(context: Context, contacts: List<ContactItem>, target: Uri): Int {
+        val resolver = context.contentResolver
+        var count = 0
+        resolver.openOutputStream(target, "wt")?.use { out ->
+            contacts.forEach { c ->
+                val key = c.lookupKey ?: return@forEach
+                val uri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_VCARD_URI, key)
+                val ok = runCatching {
+                    resolver.openAssetFileDescriptor(uri, "r")?.use { fd ->
+                        fd.createInputStream().use { it.copyTo(out) }
+                    } != null
+                }.getOrDefault(false)
+                if (ok) count++
+            }
+        } ?: error("Nie można zapisać pliku")
+        return count
+    }
 }
