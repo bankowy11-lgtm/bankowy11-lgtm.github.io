@@ -19,7 +19,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
@@ -48,10 +49,10 @@ import java.time.LocalDate
 
 enum class Tab(val label: String, val icon: ImageVector) {
     CONTACTS("Kontakty", Icons.Default.Person),
+    RECENT("Ostatnie", Icons.Default.History),
     FAVORITES("Ulubione", Icons.Default.Star),
     GROUPS("Grupy", Icons.Default.Groups),
-    TOOLS("Narzędzia", Icons.Default.Build),
-    SETTINGS("Ustawienia", Icons.Default.Settings)
+    MORE("Więcej", Icons.Default.MoreHoriz)
 }
 
 class MainActivity : FragmentActivity() {
@@ -214,8 +215,8 @@ fun ContactProApp() {
         }
     }
 
-    LaunchedEffect(toolPage, canCallLog, data) {
-        if (toolPage == ToolPage.HISTORY && canCallLog) {
+    LaunchedEffect(canCallLog, data) {
+        if (canCallLog) {
             callsLoading = true
             calls = withContext(Dispatchers.IO) {
                 runCatching { ContactsRepository.loadCallLog(context, data.contacts) }.getOrElse { calls }
@@ -258,6 +259,7 @@ fun ContactProApp() {
     }
     val favorites = remember(data) { data.contacts.filter { it.starred } }
     val duplicates = remember(data) { ContactsRepository.findDuplicates(data.contacts) }
+    val missedBadge = remember(calls) { recentMissedCount(calls) }
     val detail = detailId?.let { id -> data.contacts.firstOrNull { it.id == id } }
 
     fun export(list: List<ContactItem>, name: String) {
@@ -302,7 +304,15 @@ fun ContactProApp() {
                             NavigationBarItem(
                                 selected = tab == t,
                                 onClick = { tab = t; toolPage = null },
-                                icon = { Icon(t.icon, t.label) },
+                                icon = {
+                                    if (t == Tab.RECENT && missedBadge > 0) {
+                                        BadgedBox(badge = { Badge(containerColor = Red) { Text("$missedBadge", color = Color.White) } }) {
+                                            Icon(t.icon, t.label)
+                                        }
+                                    } else {
+                                        Icon(t.icon, t.label)
+                                    }
+                                },
                                 label = { Text(t.label, fontSize = 11.sp, maxLines = 1) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = Accent, selectedTextColor = Accent,
@@ -343,8 +353,19 @@ fun ContactProApp() {
                     isDark = isDark,
                     onToggleTheme = { setTheme(if (isDark) ThemeMode.LIGHT else ThemeMode.DARK) },
                     onNewGroup = { if (canWrite) showNewGroup = true else requestContacts() },
-                    onDuplicates = { tab = Tab.TOOLS; toolPage = ToolPage.DUPLICATES },
-                    onBackup = { tab = Tab.TOOLS; toolPage = ToolPage.BACKUP }
+                    onDuplicates = { tab = Tab.MORE; toolPage = ToolPage.DUPLICATES },
+                    onBackup = { tab = Tab.MORE; toolPage = ToolPage.BACKUP }
+                )
+                Tab.RECENT -> HistoryScreen(
+                    padding = padding,
+                    hasPermission = canCallLog,
+                    loading = callsLoading,
+                    calls = calls,
+                    onBack = null,
+                    onRequestPermission = { singlePermission.launch(Manifest.permission.READ_CALL_LOG) },
+                    onOpenContact = { detailId = it.id },
+                    isBlocked = { n -> blockRev.let { BlockStore.isBlocked(context, n) } },
+                    onUnknownNumber = { numberAction = it }
                 )
                 Tab.FAVORITES -> FavoritesScreen(padding, favorites) { detailId = it.id }
                 Tab.GROUPS -> GroupsScreen(
@@ -358,23 +379,12 @@ fun ContactProApp() {
                     },
                     onNewGroup = { if (canWrite) showNewGroup = true else requestContacts() }
                 )
-                Tab.TOOLS -> when (toolPage) {
+                Tab.MORE -> when (toolPage) {
                     null -> ToolsScreen(
                         padding = padding,
                         blockingActive = remember(blockRev) { BlockStore.isRoleHeld(context) },
                         duplicateCount = duplicates.size,
                         onOpen = { toolPage = it }
-                    )
-                    ToolPage.HISTORY -> HistoryScreen(
-                        padding = padding,
-                        hasPermission = canCallLog,
-                        loading = callsLoading,
-                        calls = calls,
-                        onBack = { toolPage = null },
-                        onRequestPermission = { singlePermission.launch(Manifest.permission.READ_CALL_LOG) },
-                        onOpenContact = { detailId = it.id },
-                        isBlocked = { n -> blockRev.let { BlockStore.isBlocked(context, n) } },
-                        onUnknownNumber = { numberAction = it }
                     )
                     ToolPage.BLOCKING -> BlockingScreen(
                         padding = padding,
@@ -413,11 +423,11 @@ fun ContactProApp() {
                         onEdit = { editCard = true },
                         onShowQr = { showCardQr = true }
                     )
-                }
-                Tab.SETTINGS -> {
+                    ToolPage.SETTINGS -> {
                     val pinOn = remember(lockRev) { LockStore.isEnabled(context) }
                     SettingsScreen(
                         padding = padding,
+                        onBack = { toolPage = null },
                         themeMode = themeMode,
                         onThemeMode = { setTheme(it) },
                         pinEnabled = pinOn,
@@ -443,6 +453,7 @@ fun ContactProApp() {
                         },
                         onChangePin = { pinDialog = true }
                     )
+                    }
                 }
             }
         }
@@ -504,7 +515,7 @@ fun ContactProApp() {
                         toast(
                             context,
                             if (BlockStore.isRoleHeld(context)) "Zablokowano $number"
-                            else "Zablokowano $number – włącz ochronę w Narzędzia › Blokowanie"
+                            else "Zablokowano $number – włącz ochronę w Więcej › Blokowanie"
                         )
                     }
                     blockRev++

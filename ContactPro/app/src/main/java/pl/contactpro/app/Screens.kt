@@ -79,37 +79,79 @@ private fun callStyle(type: Int): Triple<ImageVector, Color, String> = when (typ
     else -> Triple(Icons.Default.Call, Muted, "Połączenie")
 }
 
+private enum class CallFilter(val label: String) {
+    ALL("Wszystkie"), INCOMING("Przychodzące"), MISSED("Nieodebrane"), OUTGOING("Wychodzące")
+}
+
+private fun dayLabel(millis: Long): String = when {
+    DateUtils.isToday(millis) -> "Dzisiaj"
+    DateUtils.isToday(millis + DateUtils.DAY_IN_MILLIS) -> "Wczoraj"
+    else -> {
+        val sameYear = Calendar.getInstance().apply { timeInMillis = millis }.get(Calendar.YEAR) ==
+            Calendar.getInstance().get(Calendar.YEAR)
+        SimpleDateFormat(if (sameYear) "EEEE, d MMMM" else "d MMMM yyyy", Locale("pl")).format(Date(millis))
+            .replaceFirstChar { it.uppercase() }
+    }
+}
+
+/** Liczba nieodebranych połączeń z ostatnich 24 godzin – do plakietki na zakładce. */
+fun recentMissedCount(calls: List<CallEntry>): Int {
+    val since = System.currentTimeMillis() - DateUtils.DAY_IN_MILLIS
+    return calls.filter { it.isMissed && it.date >= since }.sumOf { it.count }
+}
+
 @Composable
 fun HistoryScreen(
     padding: PaddingValues,
     hasPermission: Boolean,
     loading: Boolean,
     calls: List<CallEntry>,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     onRequestPermission: () -> Unit,
     onOpenContact: (ContactItem) -> Unit,
     isBlocked: (String) -> Boolean,
     onUnknownNumber: (String) -> Unit
 ) {
     val context = LocalContext.current
-    var missedOnly by remember { mutableStateOf(false) }
-    val shown = if (missedOnly) calls.filter { it.isMissed } else calls
+    var filter by remember { mutableStateOf(CallFilter.ALL) }
+    val shown = remember(calls, filter) {
+        when (filter) {
+            CallFilter.ALL -> calls
+            CallFilter.INCOMING -> calls.filter { it.type == CallLog.Calls.INCOMING_TYPE }
+            CallFilter.MISSED -> calls.filter { it.isMissed }
+            CallFilter.OUTGOING -> calls.filter { it.type == CallLog.Calls.OUTGOING_TYPE }
+        }
+    }
+    val rows: List<Any> = remember(shown) {
+        buildList {
+            var last: String? = null
+            shown.forEach { c ->
+                val d = dayLabel(c.date)
+                if (d != last) { add(d); last = d }
+                add(c)
+            }
+        }
+    }
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
     LazyColumn(
         Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item { SubHeader("Historia", "Ostatnie połączenia", onBack) }
+        item {
+            if (onBack != null) SubHeader("Ostatnie", "Kto do Ciebie dzwonił", onBack)
+            else ScreenTitle("Ostatnie", "Kto do Ciebie dzwonił")
+        }
         if (!hasPermission) {
             item {
                 PanelCard {
                     Icon(Icons.Default.History, null, tint = Accent, modifier = Modifier.size(36.dp))
                     Spacer(Modifier.height(10.dp))
-                    Text("Pokaż historię połączeń", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Pokaż ostatnie połączenia", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Aby wyświetlić ostatnie połączenia i szybko oddzwonić, aplikacja potrzebuje dostępu do rejestru połączeń. Dane zostają w telefonie.",
+                        "Aby zobaczyć, kto do Ciebie dzwonił, i szybko oddzwonić, aplikacja potrzebuje dostępu do rejestru połączeń. Dane zostają w telefonie.",
                         color = Muted, fontSize = 14.sp
                     )
                     Spacer(Modifier.height(14.dp))
@@ -121,11 +163,13 @@ fun HistoryScreen(
             return@LazyColumn
         }
         item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                item { GroupChip("Wszystkie", !missedOnly) { missedOnly = false } }
-                item {
-                    val missed = calls.count { it.isMissed }
-                    GroupChip(if (missed > 0) "Nieodebrane ($missed)" else "Nieodebrane", missedOnly) { missedOnly = true }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 4.dp)) {
+                items(CallFilter.entries) { f ->
+                    val label = if (f == CallFilter.MISSED) {
+                        val missed = calls.count { it.isMissed }
+                        if (missed > 0) "${f.label} ($missed)" else f.label
+                    } else f.label
+                    GroupChip(label, filter == f) { filter = f }
                 }
             }
         }
@@ -135,20 +179,37 @@ fun HistoryScreen(
                     CircularProgressIndicator(color = Accent)
                 }
             }
-            shown.isEmpty() -> item { EmptyState(if (missedOnly) "Brak nieodebranych połączeń." else "Historia połączeń jest pusta.") }
-            else -> items(shown, key = { it.id }) { call ->
+            shown.isEmpty() -> item {
+                EmptyState(
+                    when (filter) {
+                        CallFilter.ALL -> "Historia połączeń jest pusta."
+                        CallFilter.INCOMING -> "Brak połączeń przychodzących."
+                        CallFilter.MISSED -> "Brak nieodebranych połączeń. 👍"
+                        CallFilter.OUTGOING -> "Brak połączeń wychodzących."
+                    }
+                )
+            }
+            else -> items(rows, key = { r -> if (r is CallEntry) r.id else "day-$r" }) { r ->
+                if (r !is CallEntry) {
+                    Text(
+                        r as String, color = Muted, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 6.dp, top = 10.dp)
+                    )
+                    return@items
+                }
+                val call = r
                 val (icon, color, label) = callStyle(call.type)
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Panel)
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Panel)
                         .clickable {
                             if (call.contact != null) onOpenContact(call.contact)
                             else if (call.number.isNotBlank()) onUnknownNumber(call.number)
                         }
-                        .padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),
+                        .padding(start = 12.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Avatar(call.displayName, call.contact?.photo, 48)
-                    Spacer(Modifier.width(14.dp))
+                    Avatar(call.displayName, call.contact?.photo, 46)
+                    Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
                             call.displayName + if (call.count > 1) " (${call.count})" else "",
@@ -160,7 +221,8 @@ fun HistoryScreen(
                             Icon(icon, label, tint = color, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(5.dp))
                             val extra = listOfNotNull(
-                                callTime(call.date),
+                                label,
+                                timeFormat.format(Date(call.date)),
                                 durationText(call.duration).takeIf { it.isNotEmpty() }
                             ).joinToString(" • ")
                             Text(extra, color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -168,8 +230,8 @@ fun HistoryScreen(
                         if (call.contact == null && call.number.isNotBlank()) {
                             if (isBlocked(call.number)) {
                                 Text("Zablokowany • dotknij, aby odblokować", color = Red, fontSize = 11.sp)
-                            } else {
-                                Text("Dotknij, aby dodać lub zablokować", color = Accent, fontSize = 11.sp)
+                            } else if (call.cachedName.isNullOrBlank()) {
+                                Text("Nieznany numer • dotknij, aby dodać lub zablokować", color = Accent, fontSize = 11.sp)
                             }
                         }
                     }

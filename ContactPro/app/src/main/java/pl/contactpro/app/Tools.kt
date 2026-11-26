@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -41,9 +42,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-const val APP_VERSION = "2.0"
+const val APP_VERSION = "2.1"
 
-enum class ToolPage { HISTORY, BLOCKING, BACKUP, DUPLICATES, MY_CARD }
+enum class ToolPage { BLOCKING, BACKUP, DUPLICATES, MY_CARD, SETTINGS }
 
 // ---------- Grupy ----------
 
@@ -101,8 +102,7 @@ fun ToolsScreen(padding: PaddingValues, blockingActive: Boolean, duplicateCount:
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item { ScreenTitle("Narzędzia") }
-        item { ToolRow(Icons.Default.History, Teal, "Historia połączeń", "Ostatnie rozmowy i oddzwanianie") { onOpen(ToolPage.HISTORY) } }
+        item { ScreenTitle("Więcej", "Narzędzia i ustawienia") }
         item {
             ToolRow(Icons.Default.Block, Color(0xFFE5484D), "Blokowanie połączeń",
                 if (blockingActive) "Ochrona włączona" else "Zablokuj niechciane numery") { onOpen(ToolPage.BLOCKING) }
@@ -113,6 +113,7 @@ fun ToolsScreen(padding: PaddingValues, blockingActive: Boolean, duplicateCount:
                 if (duplicateCount > 0) "Znaleziono: $duplicateCount – połącz podobne" else "Połącz podobne kontakty") { onOpen(ToolPage.DUPLICATES) }
         }
         item { ToolRow(Icons.Default.QrCode2, Purple, "Wizytówki QR", "Udostępnij swój kontakt") { onOpen(ToolPage.MY_CARD) } }
+        item { ToolRow(Icons.Default.Settings, Color(0xFF64748B), "Ustawienia", "Motyw, blokada PIN / biometria") { onOpen(ToolPage.SETTINGS) } }
     }
 }
 
@@ -273,6 +274,7 @@ fun MyCardDialog(initial: MyCard, onDismiss: () -> Unit, onSave: (MyCard) -> Uni
 @Composable
 fun SettingsScreen(
     padding: PaddingValues,
+    onBack: () -> Unit,
     themeMode: ThemeMode,
     onThemeMode: (ThemeMode) -> Unit,
     pinEnabled: Boolean,
@@ -287,7 +289,7 @@ fun SettingsScreen(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { ScreenTitle("Ustawienia") }
+        item { SubHeader("Ustawienia", null, onBack) }
         item {
             PanelCard {
                 SettingTitle(Icons.Default.Palette, Accent, "Motyw")
